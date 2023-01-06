@@ -1,0 +1,423 @@
+{
+    "os": "Linux-5.15.0-56-generic-x86_64-with-glibc2.35",
+    "python": "3.10.8",
+    "heartbeatAt": "2023-01-06T12:31:10.481565",
+    "startedAt": "2023-01-06T12:31:09.830071",
+    "docker": null,
+    "cuda": null,
+    "args": [
+        "--model_name",
+        "allenai/longformer-base-4096",
+        "--dataset_name",
+        "hotpotqa_longformer",
+        "--do_train",
+        "--do_eval",
+        "--seed",
+        "42",
+        "--per_device_train_batch_size",
+        "2",
+        "--per_device_eval_batch_size",
+        "4",
+        "--gradient_accumulation_steps",
+        "4",
+        "--learning_rate",
+        "3e-5",
+        "--num_train_epochs",
+        "3",
+        "--save_strategy",
+        "steps",
+        "--save_steps",
+        "20",
+        "--logging_steps",
+        "5",
+        "--evaluation_strategy",
+        "steps",
+        "--eval_steps",
+        "20",
+        "--load_best_model_at_end",
+        "True",
+        "--save_total_limit",
+        "2",
+        "--fp16",
+        "True",
+        "--run_name",
+        "longformer_hotpotqa_test",
+        "--output_dir",
+        "/home/deokhk/research/longformer_trained_models/hotpotqa",
+        "--overwrite_output_dir",
+        "--prediction_loss_only",
+        "True",
+        "--ddp_find_unused_parameters",
+        "False",
+        "--report_to",
+        "wandb"
+    ],
+    "state": "running",
+    "program": "/home/deokhk/research/HotpotQA_longformer/run_qa.py",
+    "codePath": "run_qa.py",
+    "git": {
+        "remote": "https://github.com/deokhk/HotpotQA_longformer.git",
+        "commit": "f77ee5de276571459b2e3906d14bd3c75883d9ec"
+    },
+    "email": null,
+    "root": "/home/deokhk/research/HotpotQA_longformer",
+    "host": "nlpserver2",
+    "username": "deokhk",
+    "executable": "/home/deokhk/miniconda3/envs/DIRE/bin/python",
+    "cpu_count": 32,
+    "cpu_count_logical": 64,
+    "cpu_freq": {
+        "current": 4.290343749999999,
+        "min": 1800.0,
+        "max": 3600.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 3.6,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.289,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.291,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        },
+        {
+            "current": 4.29,
+            "min": 1800.0,
+            "max": 3600.0
+        }
+    ],
+    "disk": {
+        "total": 1832.2072448730469,
+        "used": 52.97255325317383
+    },
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_count": 4,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25447170048
+        },
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25447170048
+        },
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25447170048
+        },
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25447170048
+        }
+    ],
+    "memory": {
+        "total": 251.51942825317383
+    }
+}

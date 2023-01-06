@@ -1,66 +1,31 @@
-#!/usr/bin/env python
-# coding=utf-8
-# Copyright 2020 The HuggingFace Team All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Fine-tuning the library models for question answering using a slightly adapted version of the 🤗 Trainer.
-"""
-# You can also adapt this script on your own question answering task. Pointers for this are left as comments.
-
+import torch
+import datasets
+from transformers import LongformerTokenizerFast
+import dataclasses
 import logging
 import os
-import json 
 import sys
-import wandb 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Dict, List, Optional
 
-import datasets
-import torch 
-from datasets import load_dataset, load_metric
-from model_util import (
-    load_hotpotqa
-)
+import numpy as np
+import torch
+import wandb 
 
-import transformers
-from trainer_qa import QuestionAnsweringTrainer
+from datasets import load_dataset, Dataset, DatasetDict
+
+from transformers import LongformerForQuestionAnswering, LongformerTokenizerFast, EvalPrediction
 from transformers import (
-    AutoConfig,
-    AutoModelForQuestionAnswering,
-    AutoTokenizer,
-    DataCollatorWithPadding,
-    EvalPrediction,
     HfArgumentParser,
-    PreTrainedTokenizerFast,
+    DefaultDataCollator,
+    Trainer,
     TrainingArguments,
-    default_data_collator,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, send_example_telemetry
-from transformers.utils.versions import require_version
-from utils_qa import postprocess_qa_predictions
-
-
-# Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.21.0.dev0")
-
-require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/question-answering/requirements.txt")
 
 logger = logging.getLogger(__name__)
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["WANDB_PROJECT"] = "DIRE"
 
 @dataclass
 class ModelArguments:
@@ -71,623 +36,274 @@ class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
-    config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
-    )
     tokenizer_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
     cache_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Path to directory to store the pretrained models downloaded from huggingface.co"},
+        default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
-    )
-    use_auth_token: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "Will use the token generated when running `transformers-cli login` (necessary to use this script "
-                "with private models)."
-            )
-        },
-    )
-
 
 @dataclass
 class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-
     dataset_name: Optional[str] = field(
-        default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
+        default="hotpotqa", metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
-    dataset_config_name: Optional[str] = field(
-        default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
-    )
-    train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
-    validation_file: Optional[str] = field(
-        default=None,
-        metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."},
-    )
-    test_file: Optional[str] = field(
-        default=None,
-        metadata={"help": "An optional input test data file to evaluate the perplexity on (a text file)."},
-    )
-    overwrite_cache: bool = field(
-        default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
-    )
-    preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
-    )
-    max_seq_length: int = field(
-        default=384,
-        metadata={
-            "help": (
-                "The maximum total input sequence length after tokenization. Sequences longer "
-                "than this will be truncated, sequences shorter will be padded."
-            )
-        },
-    )
-    pad_to_max_length: bool = field(
-        default=True,
-        metadata={
-            "help": (
-                "Whether to pad all samples to `max_seq_length`. If False, will pad the samples dynamically when"
-                " batching to the maximum length in the batch (which can be faster on GPU but will be slower on TPU)."
-            )
-        },
-    )
-    max_train_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of training examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_eval_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_predict_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of prediction examples to this "
-                "value if set."
-            )
-        },
-    )
-    version_2_with_negative: bool = field(
-        default=False, metadata={"help": "If true, some of the examples do not have an answer."}
-    )
-    null_score_diff_threshold: float = field(
-        default=0.0,
-        metadata={
-            "help": (
-                "The threshold used to select the null answer: if the best answer has a score that is less than "
-                "the score of the null answer minus this threshold, the null answer is selected for this example. "
-                "Only useful when `version_2_with_negative=True`."
-            )
-        },
-    )
-    doc_stride: int = field(
-        default=128,
-        metadata={"help": "When splitting up a long document into chunks, how much stride to take between chunks."},
-    )
-    n_best_size: int = field(
-        default=20,
-        metadata={"help": "The total number of n-best predictions to generate when looking for an answer."},
-    )
-    max_answer_length: int = field(
-        default=30,
-        metadata={
-            "help": (
-                "The maximum length of an answer that can be generated. This is needed because the start "
-                "and end predictions are not conditioned on one another."
-            )
-        },
+    max_len: Optional[int] = field(
+        default=4096,
+        metadata={"help": "Max input length for the source text"},
     )
 
-    def __post_init__(self):
-        if (
-            self.dataset_name is None
-            and self.train_file is None
-            and self.validation_file is None
-            and self.test_file is None
-        ):
-            raise ValueError("Need either a dataset name or a training/validation file/test_file.")
+
+tokenizer = LongformerTokenizerFast.from_pretrained('allenai/longformer-base-4096', additional_special_tokens=['[q]', '[/q]', '<t>', '</t>', '[s]'])
+
+def get_correct_alignement(context, answer):
+    """ Some original examples in SQuAD have indices wrong by 1 or 2 character. We test and fix this here. """
+    gold_text = answer['text'][0]
+    start_idx = answer['answer_start'][0]
+    end_idx = start_idx + len(gold_text)
+    if context[start_idx:end_idx] == gold_text:
+        return start_idx, end_idx       # When the gold label position is good
+    elif context[start_idx-1:end_idx-1] == gold_text:
+        return start_idx-1, end_idx-1   # When the gold label is off by one character
+    elif context[start_idx-2:end_idx-2] == gold_text:
+        return start_idx-2, end_idx-2   # When the gold label is off by two character
+    else:
+        raise ValueError()
+
+special_token_ids_list = tokenizer('[q][/q]<t></t>[s]<s></s>')["input_ids"]
+special_token_ids_list = list(set(special_token_ids_list))
+
+def func_global_att(x):
+    if x in special_token_ids_list:
+        return 1 
+    else:
+        return 0
+
+
+# Tokenize our training dataset
+def convert_to_features(example):
+    # Tokenize contexts and questions (as pairs of inputs)
+    encodings = tokenizer(example['context'], max_length=4096, padding="max_length")
+    input_ids = encodings["input_ids"]
+    global_attention_mask = list(map(func_global_att, input_ids))
+    # Compute start and end tokens for labels using Transformers's fast tokenizers alignement methodes.
+    # this will give us the position of answer span in the context text
+    start_idx, end_idx = get_correct_alignement(example['context'], example['answers'])
+    
+    context_encodings = tokenizer.encode_plus(example['context'])
+
+    start_positions = context_encodings.char_to_token(start_idx)
+    end_positions = context_encodings.char_to_token(end_idx-1)
+    if end_positions > 4096:
+      start_positions, end_positions = 0, 0
+
+    encodings.update({'start_positions': start_positions,
+                      'end_positions': end_positions,
+                      'attention_mask': encodings['attention_mask'],
+                      'global_attention_mask': global_attention_mask})
+
+    return encodings
+
+def load_hotpotqa_for_longformer():
+    """
+    Load hotpotqa dataset for longformer.
+    Here, the context is processed like this:
+
+
+    We need to return three things in order to match the SQuAD format.
+    [1] ["question"] = question 
+    [2] ["answers"] = {"text": [answer_text], "answer_start": [answer_start]}
+    [3] ["context"] = context 
+
+    And the context looks like this:
+    [CLS] [q] question [/q] <yes> <no> <t> title_1 </t> sent_1,1 [s] sent_1,2 [s] .. <t> 
+    title_2 </t> sent_2,1 [s] sent_2,2 [s] .. "
+
+    Here, [q], [/q], <t>, </t>, [s], <yes>, <no> is all special tokens.
+    """
+    hotpotqa_distractor = load_dataset("hotpot_qa","distractor")
+    hotpotqa_train = hotpotqa_distractor["train"]
+    train_data_cleaned = []
+
+    for datapoint in hotpotqa_train: 
+        cleaned_qapair = dict()
+        mycontext = ""
+        context_titles = datapoint["context"]["title"]
+        context_sentences_list = datapoint["context"]["sentences"]
+        question = datapoint["question"]
+        mycontext = f"[q] {question} [/q] <yes> <no> "
+        for title, sentence_list in zip(context_titles, context_sentences_list):
+            mycontext += (f"<t> {title} </t> ")
+            for sentence in sentence_list:
+                mycontext += (f"{sentence} [s] ")
+        answer_text = datapoint["answer"]
+        if answer_text in mycontext:
+            answer_start_idx = mycontext.index(answer_text)
         else:
-            if self.train_file is not None:
-                extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
-            if self.validation_file is not None:
-                extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
-            if self.test_file is not None:
-                extension = self.test_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`test_file` should be a csv or a json file."
+            print("Skipped this qapair. The answer does not exist as a span in the context.")
+            continue 
+            
+        cleaned_qapair["question"] = question 
+        cleaned_qapair["answers"] = {"text": [answer_text], "answer_start": [answer_start_idx]}
+        cleaned_qapair["context"] = mycontext 
+        cleaned_qapair["id"] = datapoint["id"]
+        train_data_cleaned.append(cleaned_qapair)
+
+    hotpotqa_validation = hotpotqa_distractor["validation"]
+    validation_data_cleaned = []
+
+    for datapoint in hotpotqa_validation: 
+        cleaned_qapair = dict()
+        mycontext = ""
+        context_titles = datapoint["context"]["title"]
+        context_sentences_list = datapoint["context"]["sentences"]
+        question = datapoint["question"]
+        mycontext = f"[q] {question} [/q] <yes> <no> "
+        for title, sentence_list in zip(context_titles, context_sentences_list):
+            mycontext += (f"<t> {title} </t> ")
+            for sentence in sentence_list:
+                mycontext += (f"{sentence} [s] ")
+        answer_text = datapoint["answer"]
+        if answer_text in mycontext:
+            answer_start_idx = mycontext.index(answer_text)
+        else:
+            print("Skipped this qapair. The answer does not exist as a span in the context.")
+            continue 
+
+        cleaned_qapair["question"] = question 
+        cleaned_qapair["answers"] = {"text": [answer_text], "answer_start": [answer_start_idx]}
+        cleaned_qapair["context"] = mycontext 
+        cleaned_qapair["id"] = datapoint["id"]
+        validation_data_cleaned.append(cleaned_qapair)
+
+
+    train_dataset  = Dataset.from_list(train_data_cleaned)
+    dev_dataset = Dataset.from_list(validation_data_cleaned)
+
+    return (train_dataset, dev_dataset)
 
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
+    wandb.login()
+
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
-    # information sent is the one passed as arguments along with your Python/PyTorch versions.
-    send_example_telemetry("run_qa", model_args, data_args)
+    # we will load the arguments from a json file, 
+    # make sure you save the arguments in at ./args.json
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    num_gpu_available = torch.cuda.device_count()
+    num_workers = int(4 * num_gpu_available)
+
+    training_args.dataloader_num_workers=num_workers
+
+    training_args.run_name = f"longformer_{data_args.dataset_name}_b{num_gpu_available*training_args.per_device_train_batch_size*training_args.gradient_accumulation_steps}"
+    if (
+        os.path.exists(training_args.output_dir)
+        and os.listdir(training_args.output_dir)
+        and training_args.do_train
+        and not training_args.overwrite_output_dir
+    ):
+        raise ValueError(
+            f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
+        )
 
     # Setup logging
     logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
     )
-
-    log_level = training_args.get_process_log_level()
-    logger.setLevel(log_level)
-    datasets.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
-    transformers.utils.logging.enable_explicit_format()
-
-    # Log on each process the small summary:
     logger.warning(
-        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+        "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
+        training_args.local_rank,
+        training_args.device,
+        training_args.n_gpu,
+        bool(training_args.local_rank != -1),
+        training_args.fp16,
     )
-    logger.info(f"Training/evaluation parameters {training_args}")
+    logger.info("Training/evaluation parameters %s", training_args)
 
-    # Detecting last checkpoint.
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
-                "Use --overwrite_output_dir to overcome."
-            )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
-                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
-            )
-
-    # Set seed before initializing model.
+    # Set seed
     set_seed(training_args.seed)
-
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if data_args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        if data_args.dataset_name == "hotpotqa":
-            raw_datasets = load_hotpotqa()
-        else:
-            raw_datasets = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                cache_dir=model_args.cache_dir,
-                use_auth_token=True if model_args.use_auth_token else None,
-            )
-    else:
-        data_files = {}
-        if data_args.train_file is not None:
-            data_files["train"] = data_args.train_file
-            extension = data_args.train_file.split(".")[-1]
-
-        if data_args.validation_file is not None:
-            data_files["validation"] = data_args.validation_file
-            extension = data_args.validation_file.split(".")[-1]
-        if data_args.test_file is not None:
-            data_files["test"] = data_args.test_file
-            extension = data_args.test_file.split(".")[-1]
-        raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            field="data",
-            cache_dir=model_args.cache_dir,
-            use_auth_token=True if model_args.use_auth_token else None,
-        )
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
 
     # Load pretrained model and tokenizer
     #
     # Distributed training:
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(
+
+    tokenizer = LongformerTokenizerFast.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        additional_special_tokens=['[q]', '[/q]', '<t>', '</t>', '[s]']
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
+
+    model = LongformerForQuestionAnswering.from_pretrained(
         model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
         cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
     )
+    model.resize_token_embeddings(len(tokenizer))
+    # Get datasets
+    print("Loading datasets..")
+    if data_args.dataset_name == "hotpotqa_longformer":
+        train_dataset, valid_dataset = load_hotpotqa_for_longformer()
 
-    # Tokenizer check: this script requires a fast tokenizer.
-    if not isinstance(tokenizer, PreTrainedTokenizerFast):
-        raise ValueError(
-            "This example script only works for models that have a fast tokenizer. Checkout the big table of models at"
-            " https://huggingface.co/transformers/index.html#supported-frameworks to find the model types that meet"
-            " this requirement"
-        )
+    train_dataset = train_dataset.map(convert_to_features)
+    valid_dataset = valid_dataset.map(convert_to_features, load_from_cache_file=False)
 
-    # Preprocessing the datasets.
-    # Preprocessing is slighlty different for training and evaluation.
-    if training_args.do_train:
-        column_names = raw_datasets["train"].column_names
-    elif training_args.do_eval:
-        column_names = raw_datasets["validation"].column_names
-    else:
-        column_names = raw_datasets["test"].column_names
-    question_column_name = "question" if "question" in column_names else column_names[0]
-    context_column_name = "context" if "context" in column_names else column_names[1]
-    answer_column_name = "answers" if "answers" in column_names else column_names[2]
 
-    # Padding side determines if we do (question|context) or (context|question).
-    pad_on_right = tokenizer.padding_side == "right"
+    # set the tensor type and the columns which the dataset should return
+    columns = ['input_ids', 'attention_mask', 'start_positions', 'end_positions', 'global_attention_mask']
+    train_dataset.set_format(type='torch', columns=columns)
+    valid_dataset.set_format(type='torch', columns=columns)
+    print("Loading done!")
 
-    if data_args.max_seq_length > tokenizer.model_max_length:
-        logger.warning(
-            f"The max_seq_length passed ({data_args.max_seq_length}) is larger than the maximum length for the"
-            f"model ({tokenizer.model_max_length}). Using max_seq_length={tokenizer.model_max_length}."
-        )
-    max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)
 
-    # Training preprocessing
-    def prepare_train_features(examples):
-        # Some of the questions have lots of whitespace on the left, which is not useful and will make the
-        # truncation of the context fail (the tokenized question will take a lots of space). So we remove that
-        # left whitespace
-        examples[question_column_name] = [q.lstrip() for q in examples[question_column_name]]
-
-        # Tokenize our examples with truncation and maybe padding, but keep the overflows using a stride. This results
-        # in one example possible giving several features when a context is long, each of those features having a
-        # context that overlaps a bit the context of the previous feature.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
-
-        # Since one example might give us several features if it has a long context, we need a map from a feature to
-        # its corresponding example. This key gives us just that.
-        sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
-        # The offset mappings will give us a map from token to character position in the original context. This will
-        # help us compute the start_positions and end_positions.
-        offset_mapping = tokenized_examples.pop("offset_mapping")
-
-        # Let's label those examples!
-        tokenized_examples["start_positions"] = []
-        tokenized_examples["end_positions"] = []
-
-        for i, offsets in enumerate(offset_mapping):
-            # We will label impossible answers with the index of the CLS token.
-            input_ids = tokenized_examples["input_ids"][i]
-            cls_index = input_ids.index(tokenizer.cls_token_id)
-
-            # Grab the sequence corresponding to that example (to know what is the context and what is the question).
-            sequence_ids = tokenized_examples.sequence_ids(i)
-
-            # One example can give several spans, this is the index of the example containing this span of text.
-            sample_index = sample_mapping[i]
-            answers = examples[answer_column_name][sample_index]
-            # If no answers are given, set the cls_index as answer.
-            if len(answers["answer_start"]) == 0:
-                tokenized_examples["start_positions"].append(cls_index)
-                tokenized_examples["end_positions"].append(cls_index)
-            else:
-                # Start/end character index of the answer in the text.
-                start_char = answers["answer_start"][0]
-                end_char = start_char + len(answers["text"][0])
-
-                # Start token index of the current span in the text.
-                token_start_index = 0
-                while sequence_ids[token_start_index] != (1 if pad_on_right else 0):
-                    token_start_index += 1
-
-                # End token index of the current span in the text.
-                token_end_index = len(input_ids) - 1
-                while sequence_ids[token_end_index] != (1 if pad_on_right else 0):
-                    token_end_index -= 1
-
-                # Detect if the answer is out of the span (in which case this feature is labeled with the CLS index).
-                if not (offsets[token_start_index][0] <= start_char and offsets[token_end_index][1] >= end_char):
-                    tokenized_examples["start_positions"].append(cls_index)
-                    tokenized_examples["end_positions"].append(cls_index)
-                else:
-                    # Otherwise move the token_start_index and token_end_index to the two ends of the answer.
-                    # Note: we could go after the last offset if the answer is the last word (edge case).
-                    while token_start_index < len(offsets) and offsets[token_start_index][0] <= start_char:
-                        token_start_index += 1
-                    tokenized_examples["start_positions"].append(token_start_index - 1)
-                    while offsets[token_end_index][1] >= end_char:
-                        token_end_index -= 1
-                    tokenized_examples["end_positions"].append(token_end_index + 1)
-
-        return tokenized_examples
-
-    if training_args.do_train:
-        if "train" not in raw_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_dataset = raw_datasets["train"]
-        if data_args.max_train_samples is not None:
-            # We will select sample from whole data if argument is specified
-            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-            train_dataset = train_dataset.select(range(max_train_samples))
-        # Create train feature from dataset
-        with training_args.main_process_first(desc="train dataset map pre-processing"):
-            train_dataset = train_dataset.map(
-                prepare_train_features,
-                batched=True,
-                num_proc=data_args.preprocessing_num_workers,
-                remove_columns=column_names,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on train dataset",
-            )
-        if data_args.max_train_samples is not None:
-            # Number of samples might increase during Feature Creation, We select only specified max samples
-            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-            train_dataset = train_dataset.select(range(max_train_samples))
-
-    # Validation preprocessing
-    def prepare_validation_features(examples):
-        # Some of the questions have lots of whitespace on the left, which is not useful and will make the
-        # truncation of the context fail (the tokenized question will take a lots of space). So we remove that
-        # left whitespace
-        examples[question_column_name] = [q.lstrip() for q in examples[question_column_name]]
-
-        # Tokenize our examples with truncation and maybe padding, but keep the overflows using a stride. This results
-        # in one example possible giving several features when a context is long, each of those features having a
-        # context that overlaps a bit the context of the previous feature.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
-
-        # Since one example might give us several features if it has a long context, we need a map from a feature to
-        # its corresponding example. This key gives us just that.
-        sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
-
-        # For evaluation, we will need to convert our predictions to substrings of the context, so we keep the
-        # corresponding example_id and we will store the offset mappings.
-        tokenized_examples["example_id"] = []
-
-        for i in range(len(tokenized_examples["input_ids"])):
-            # Grab the sequence corresponding to that example (to know what is the context and what is the question).
-            sequence_ids = tokenized_examples.sequence_ids(i)
-            context_index = 1 if pad_on_right else 0
-
-            # One example can give several spans, this is the index of the example containing this span of text.
-            sample_index = sample_mapping[i]
-            tokenized_examples["example_id"].append(examples["id"][sample_index])
-
-            # Set to None the offset_mapping that are not part of the context so it's easy to determine if a token
-            # position is part of the context or not.
-            tokenized_examples["offset_mapping"][i] = [
-                (o if sequence_ids[k] == context_index else None)
-                for k, o in enumerate(tokenized_examples["offset_mapping"][i])
-            ]
-
-        return tokenized_examples
-
-    if training_args.do_eval:
-        if "validation" not in raw_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
-        eval_examples = raw_datasets["validation"]
-        if data_args.max_eval_samples is not None:
-            # We will select sample from whole data
-            max_eval_samples = min(len(eval_examples), data_args.max_eval_samples)
-            eval_examples = eval_examples.select(range(max_eval_samples))
-        # Validation Feature Creation
-        with training_args.main_process_first(desc="validation dataset map pre-processing"):
-            eval_dataset = eval_examples.map(
-                prepare_validation_features,
-                batched=True,
-                num_proc=data_args.preprocessing_num_workers,
-                remove_columns=column_names,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on validation dataset",
-            )
-        if data_args.max_eval_samples is not None:
-            # During Feature creation dataset samples might increase, we will select required samples again
-            max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
-            eval_dataset = eval_dataset.select(range(max_eval_samples))
-
-    if training_args.do_predict:
-        if "test" not in raw_datasets:
-            raise ValueError("--do_predict requires a test dataset")
-        predict_examples = raw_datasets["test"]
-        if data_args.max_predict_samples is not None:
-            # We will select sample from whole data
-            predict_examples = predict_examples.select(range(data_args.max_predict_samples))
-        # Predict Feature Creation
-        with training_args.main_process_first(desc="prediction dataset map pre-processing"):
-            predict_dataset = predict_examples.map(
-                prepare_validation_features,
-                batched=True,
-                num_proc=data_args.preprocessing_num_workers,
-                remove_columns=column_names,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on prediction dataset",
-            )
-        if data_args.max_predict_samples is not None:
-            # During Feature creation dataset samples might increase, we will select required samples again
-            max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
-            predict_dataset = predict_dataset.select(range(max_predict_samples))
-
-    # Data collator
-    # We have already padded to max length if the corresponding flag is True, otherwise we need to pad in the data
-    # collator.
-    data_collator = (
-        default_data_collator
-        if data_args.pad_to_max_length
-        else DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8 if training_args.fp16 else None)
-    )
-
-    # Post-processing:
-    def post_processing_function(examples, features, predictions, stage="eval"):
-        # Post-processing: we match the start logits and end logits to answers in the original context.
-        predictions = postprocess_qa_predictions(
-            examples=examples,
-            features=features,
-            predictions=predictions,
-            version_2_with_negative=data_args.version_2_with_negative,
-            n_best_size=data_args.n_best_size,
-            max_answer_length=data_args.max_answer_length,
-            null_score_diff_threshold=data_args.null_score_diff_threshold,
-            output_dir=training_args.output_dir,
-            log_level=log_level,
-            prefix=stage,
-        )
-        # Format the result to the format the metric expects.
-        if data_args.version_2_with_negative:
-            formatted_predictions = [
-                {"id": k, "prediction_text": v, "no_answer_probability": 0.0} for k, v in predictions.items()
-            ]
-        else:
-            formatted_predictions = [{"id": k, "prediction_text": v} for k, v in predictions.items()]
-
-        references = [{"id": ex["id"], "answers": ex[answer_column_name]} for ex in examples]
-        return EvalPrediction(predictions=formatted_predictions, label_ids=references)
-
-    metric = load_metric("squad_v2" if data_args.version_2_with_negative else "squad")
-
-    def compute_metrics(p: EvalPrediction):
-        return metric.compute(predictions=p.predictions, references=p.label_ids)
-
-    #
-    training_args.dataloader_num_workers = int(2* torch.cuda.device_count())
     # Initialize our Trainer
-    trainer = QuestionAnsweringTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        eval_examples=eval_examples if training_args.do_eval else None,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        post_process_function=post_processing_function,
-        compute_metrics=compute_metrics,
+        train_dataset=train_dataset,
+        eval_dataset=valid_dataset,
+        data_collator=DefaultDataCollator(),
     )
 
     # Training
     if training_args.do_train:
-        checkpoint = None
-        if training_args.resume_from_checkpoint is not None:
-            checkpoint = training_args.resume_from_checkpoint
-        elif last_checkpoint is not None:
-            checkpoint = last_checkpoint
-        train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        trainer.save_model()  # Saves the tokenizer too for easy upload
-
-        metrics = train_result.metrics
-        max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
+        trainer.train(
+            model_path=model_args.model_name_or_path if os.path.isdir(model_args.model_name_or_path) else None
         )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
-        trainer.save_state()
+        trainer.save_model()
+        # For convenience, we also re-save the tokenizer to the same directory,
+        # so that you can share your model easily on huggingface.co/models =)
+        if training_args.local_rank == 0:
+            tokenizer.save_pretrained(training_args.output_dir)
 
     # Evaluation
-    if training_args.do_eval:
+    results = {}
+    if training_args.do_eval and training_args.local_rank in [-1, 0]:
         logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
 
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+        eval_output = trainer.evaluate()
 
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
-    # Prediction
-    if training_args.do_predict:
-        logger.info("*** Predict ***")
-        results = trainer.predict(predict_dataset, predict_examples)
-        metrics = results.metrics
-
-        max_predict_samples = (
-            data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
-        )
-        metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
-
-        trainer.log_metrics("predict", metrics)
-        trainer.save_metrics("predict", metrics)
-        wandb.log_metics(metrics) 
-
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "question-answering"}
-    if data_args.dataset_name is not None:
-        kwargs["dataset_tags"] = data_args.dataset_name
-        if data_args.dataset_config_name is not None:
-            kwargs["dataset_args"] = data_args.dataset_config_name
-            kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
-        else:
-            kwargs["dataset"] = data_args.dataset_name
-
-    if training_args.push_to_hub:
-        trainer.push_to_hub(**kwargs)
-    else:
-        trainer.create_model_card(**kwargs)
-
-
-def _mp_fn(index):
-    # For xla_spawn (TPUs)
-    main()
-
+        output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
+        with open(output_eval_file, "w") as writer:
+            logger.info("***** Eval results *****")
+            for key in sorted(eval_output.keys()):
+                logger.info("  %s = %s", key, str(eval_output[key]))
+                writer.write("%s = %s\n" % (key, str(eval_output[key])))
+    
+        results.update(eval_output)
+    
+    return results
 
 if __name__ == "__main__":
     main()
