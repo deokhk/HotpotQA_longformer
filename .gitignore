@@ -6,7 +6,8 @@ data
 __pycache__/
 *.py[cod]
 *$py.class
-
+predictions
+./predictions
 # C extensions
 *.so
 
