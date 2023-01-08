@@ -47,7 +47,13 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 from utils_qa import postprocess_qa_predictions
-from model_util import load_hotpotqa_for_longformer, load_hotpotqa_for_longformer_dire_qa_simple 
+from model_util import (
+    load_hotpotqa_for_longformer, 
+    load_hotpotqa_for_longformer_dire_qa_simple, 
+    load_hotpotqa_for_longformer_dire_t5,
+    load_hotpotqa_dire_filtered_original,
+    load_probe_hotpotqa_original
+)
 
 os.environ["WANDB_PROJECT"] = "DIRE"
 
@@ -101,6 +107,9 @@ class DataTrainingArguments:
 
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
+    )
+    generated_dataset_path: Optional[str] = field(
+        default=None, metadata={"help": "Path to the generated datasets. Required if loading generated dataset from QG models"}
     )
     dataset_config_name: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
@@ -288,6 +297,16 @@ def main():
             raw_datasets = load_hotpotqa_for_longformer()
         elif data_args.dataset_name == "hotpotqa_dire_simple":
             raw_datasets = load_hotpotqa_for_longformer_dire_qa_simple()
+        elif data_args.dataset_name == "hotpotqa_t5_gen":
+            assert data_args.generated_dataset_path != None, "Path to the generated dataset is required!"
+            raw_datasets = load_hotpotqa_for_longformer_dire_t5(data_args.generated_dataset_path)
+        elif data_args.dataset_name == "hotpotqa_dire_filtered_original":
+            # 원본 dataset, dev set 중 paragraph 길이 < 5 이하인 녀석들 filtering
+            raw_datasets = load_hotpotqa_dire_filtered_original(data_args.generated_dataset_path)
+        elif data_args.dataset_name == "probe_hotpotqa_original":
+            # 원본 dataset, HotpotQA dev dataset의 경우 probe dataset으로 변환되어 있음.
+            raw_datasets = load_probe_hotpotqa_original(data_args.generated_dataset_path)
+
         else:
             raw_datasets = load_dataset(
                 data_args.dataset_name,
